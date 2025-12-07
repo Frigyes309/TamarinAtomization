@@ -1,4 +1,4 @@
-theory XOR
+theory Init_process
 begin
 
 builtins: hashing, asymmetric-encryption
@@ -9,44 +9,59 @@ rule Init_NodeB:
     ]
     -->
     [
-        !Ltk($NodeB, ~ltkNodeB)
-        !Pk($NodeB, pk(~ltkNodeB))
-        Out(pk(~ltkNodeB)),
+        !Ltk($NodeB, ~ltkNodeB),
+        !Pk($NodeB, pk(~ltkNodeB)),
+        Out(pk(~ltkNodeB))
     ]
 
 rule Init_User:
     [
-        Fr(~ltkUser),
+        Fr(~ltkUser)
     ]
-    -->
+    --[ UserCreated($User, ~ltkUser) ]->
     [
         !Ltk($User, ~ltkUser)
-        !Pk($User, pk(~ltkUser))
     ]
 
 rule Init_User_Request:
     [
         Fr(~n),
-        !Ltk($User, ~ltkUser)
+        !Ltk($User, ~ltkUser),
         !Pk($NodeB, pkNodeB)
     ]
     -->
     [
-        Out(aenc(pk(~ltkUser), pkNodeB)),
+        Out(aenc(<$User, pk(~ltkUser)>, pkNodeB)),
         State($User, <$NodeB, ~n>)
     ]
 
 rule NodeB_Process:
+    let 
+        content = adec(ciphertext, ~ltkNodeB)
+        User = fst(content)
+        receivedKey = snd(content)
+    in
     [
-        In(aenc(pk(ltkUser), pkNodeB)),
-        !Ltk($NodeB, ltkNodeB)
+        In(ciphertext),
+        !Ltk($NodeB, ~ltkNodeB),
+        Fr(~reply_n)
     ]
-    -->
+    --[ Finished($NodeB, User) ]->
     [
-        Fr(~n),
-        !Pk($NodeB, adec(aenc(pk(ltkUser), pkNodeB), skNodeB)),
-        Out(aenc(~n, pk(ltkUser))),
-        State($NodeB, <$User, "init">)
+        !LearnedKeysNodeB($NodeB, <User, receivedKey>),
+        Out(aenc(~reply_n, receivedKey)),
+        State($NodeB, <User, 'init'>)
     ]
+
+lemma User_Key_Secretary:
+    "All user key #i.
+        UserCreated(user, key) @i
+        ==>
+        not (Ex #j. K(key) @j)"
+
+lemma Functional_Test:
+    exists-trace
+    "Ex node user #i.
+        Finished(node, user) @i"
 
 end
