@@ -1,0 +1,52 @@
+theory XOR
+begin
+
+builtins: hashing, asymmetric-encryption
+
+rule Init_NodeB:
+    [
+        Fr(~ltkNodeB)
+    ]
+    -->
+    [
+        !Ltk($NodeB, ~ltkNodeB)
+        !Pk($NodeB, pk(~ltkNodeB))
+        Out(pk(~ltkNodeB)),
+    ]
+
+rule Init_User:
+    [
+        Fr(~ltkUser),
+    ]
+    -->
+    [
+        !Ltk($User, ~ltkUser)
+        !Pk($User, pk(~ltkUser))
+    ]
+
+rule Init_User_Request:
+    [
+        Fr(~n),
+        !Ltk($User, ~ltkUser)
+        !Pk($NodeB, pkNodeB)
+    ]
+    -->
+    [
+        Out(aenc(pk(~ltkUser), pkNodeB)),
+        State($User, <$NodeB, ~n>)
+    ]
+
+rule NodeB_Process:
+    [
+        In(aenc(pk(ltkUser), pkNodeB)),
+        !Ltk($NodeB, ltkNodeB)
+    ]
+    -->
+    [
+        Fr(~n),
+        !Pk($NodeB, adec(aenc(pk(ltkUser), pkNodeB), skNodeB)),
+        Out(aenc(~n, pk(ltkUser))),
+        State($NodeB, <$User, "init">)
+    ]
+
+end
