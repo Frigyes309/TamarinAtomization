@@ -1,7 +1,5 @@
-theory Init_process
-begin
 
-builtins: hashing, asymmetric-encryption, signing
+// builtins: hashing, asymmetric-encryption, signing
 
 rule Init_NodeB:
     [
@@ -105,4 +103,3 @@ lemma User_Receives_Response:
         &
         ( not (Ex #k. K(loc) @k) )"    
 
-end

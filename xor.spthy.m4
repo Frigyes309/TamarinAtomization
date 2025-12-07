@@ -1,8 +1,8 @@
-theory Init_process
+theory XOR_process
 begin
 
-builtins: hashing, asymmetric-encryption
+builtins: hashing, asymmetric-encryption, signing
 
-include(`init.spthy')
+include(`./raw/init.spthy.raw')
 
 end
