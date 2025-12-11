@@ -3,15 +3,15 @@ begin
 
 builtins: hashing, asymmetric-encryption, signing
 
-rule Init_NodeB:
+rule Init_NodeInit:
     [
-        Fr(~ltkNodeB)
+        Fr(~ltkNodeInit)
     ]
     -->
     [
-        !Ltk($NodeB, ~ltkNodeB),
-        !Pk($NodeB, pk(~ltkNodeB)),
-        Out(pk(~ltkNodeB))
+        !Ltk($NodeInit, ~ltkNodeInit),
+        !Pk($NodeInit, pk(~ltkNodeInit)),
+        Out(pk(~ltkNodeInit))
     ]
 
 rule Init_User:
@@ -26,20 +26,20 @@ rule Init_User:
 rule Init_User_Request:
     [
         !Ltk($User, ~ltkUser),
-        !Pk($NodeB, pkNodeB),
+        !Pk($NodeInit, pkNodeInit),
         Fr(~init_vc),
         Fr(~init_message),
         Fr(~n)
     ]
     -->
     [
-        Out(aenc(<$User, pk(~ltkUser), ~init_vc, ~init_message, ~n>, pkNodeB)),
-        State($User, <$NodeB, 'request', ~init_vc, ~init_message, ~n>)
+        Out(aenc(<$User, pk(~ltkUser), ~init_vc, ~init_message, ~n>, pkNodeInit)),
+        State($User, <$NodeInit, 'request', ~init_vc, ~init_message, ~n>)
     ]
 
-rule NodeB_Process:
+rule NodeInit_Process:
     let 
-        content = adec(ciphertext, ~ltkNodeB)
+        content = adec(ciphertext, ~ltkNodeInit)
         User = fst(content)
         receivedKey = fst(snd(content))
         init_vc = fst(snd(snd(content)))
@@ -47,24 +47,24 @@ rule NodeB_Process:
         nonce = snd(snd(snd(snd(content))))
 
         payload = <~reply_init_vc, ~post_init_vc_location, h(nonce)>
-        signature = sign(payload, ~ltkNodeB)
+        signature = sign(payload, ~ltkNodeInit)
     in
     [
         In(ciphertext),
-        !Ltk($NodeB, ~ltkNodeB),
+        !Ltk($NodeInit, ~ltkNodeInit),
         Fr(~reply_init_vc),
         Fr(~post_init_vc_location)
     ]
-    --[ Finished($NodeB, User) ]->
+    --[ Finished($NodeInit, User) ]->
     [
-        !LearnedKeysNodeB($NodeB, <User, receivedKey>),
+        !LearnedKeysNodeInit($NodeInit, <User, receivedKey>),
         Out(aenc(<payload, signature>, receivedKey)),
-        State($NodeB, <User, 'init'>)
+        State($NodeInit, <User, 'init'>)
     ]
 
 rule User_Branching:
     let 
-        decrypted_box = adec(reply_ciphertext, userKey)
+        decrypted_box = adec(reply_ciphertext, ~ltkUser)
         payload = fst(decrypted_box)
         signature = snd(decrypted_box)
 
@@ -74,15 +74,15 @@ rule User_Branching:
     in
     [
         In(reply_ciphertext),
-        State($User, <$NodeB, 'request', init_vc, init_message, n>),
-        !Ltk($User, userKey),
-        !Pk($NodeB, pkNodeB),
+        State($User, <$NodeInit, 'request', init_vc, init_message, n>),
+        !Ltk($User, ~ltkUser),
+        !Pk($NodeInit, pkNodeInit),
         Eq(h(n), nonce) 
     ]
     --[ User_Passes_Initialization($User, reply_init_vc, post_init_vc_location) ]->
     [
-        Eq(verify(signature, payload, pkNodeB), true),
-        State($User, <$NodeB, 'response', reply_init_vc, post_init_vc_location>)
+        Eq(verify(signature, payload, pkNodeInit), true),
+        State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_location>)
     ]
 
 

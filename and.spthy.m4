@@ -1,4 +1,4 @@
-theory XOR_process
+theory AND_process
 begin
 
 builtins: hashing, asymmetric-encryption, signing
@@ -31,18 +31,35 @@ rule NodeB_Setup:
         Out(pk(~ltkNodeB))
     ]
 
+rule TransferState:
+    let 
+        pkA = pk(~ltkNodeA)
+        pkB = pk(~ltkNodeB)
+    in
+    [
+        State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_location>),
+        Fr(~post_init_vc_locationB),
+        !Pk($NodeA, pkA),
+        !Pk($NodeB, pkB),
+    ]
+    -->
+    [
+        State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_locationA, pkA>),
+        State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_locationB, pkB>)
+    ]
+
 rule PathA_Request:
     [
         !Ltk($User, ~ltkUser),
         !Pk($NodeA, pk(~ltkNodeA)),
         //Might have to add ! later on to all States to model malicious User
-        State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_location>),
-        Fr(~n)
+        State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_locationA, pkA>),
+        Fr(~nA)
     ]
     --[    ]->
     [ 
-        State($User, <$NodeA, 'request', reply_init_vc, post_init_vc_location>),
-        Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_location, ~n>, pk(~ltkNodeA))),
+        State($User, <$NodeA, 'request', reply_init_vc, post_init_vc_locationA, ~nA>),
+        Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_locationA, ~nA>, pk(~ltkNodeA))),
     ]
 
 rule PathB_Request:
@@ -50,15 +67,16 @@ rule PathB_Request:
         !Ltk($User, ~ltkUser),
         !Pk($NodeB, pk(~ltkNodeB)),
         //Might have to add ! later on to all States to model malicious User
-        State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_location>),
-        Fr(~n)
+        State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_locationB, pkB>),
+        Fr(~nB)
     ]
     --[    ]->
     [ 
-        State($User, <$NodeB, 'request', reply_init_vc, post_init_vc_location, ~n>),
-        Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_location, ~n>, pk(~ltkNodeB))),
+        State($User, <$NodeB, 'request', reply_init_vc, post_init_vc_locationB, ~nB>),
+        Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_locationB, ~nB>, pk(~ltkNodeB)))
     ]
 
+// At an AND gate always NodeA gives the next head
 rule NodeA_Process:
     let 
         content = adec(ciphertext, ~ltkNodeA)
@@ -76,7 +94,7 @@ rule NodeA_Process:
         !Ltk($NodeA, ~ltkNodeA),
         Fr(~future_head)
     ]
-    --[PathA_Request(User)]->
+    --[ PathA_Response(User) ]->
     [
         !LearnedKeysNodeA($NodeA, <User, receivedKey>),
         Out(aenc(<payload, signature>, receivedKey)),
@@ -93,93 +111,71 @@ rule NodeB_Process:
         next_location = fst(snd(snd(snd(content))))
         nonce = snd(snd(snd(snd(content))))
 
-        payload = <next_location, ~future_head, h(nonce)>
+        payload = <next_location, h(nonce)>
         signature = sign(payload, ~ltkNodeB)
     in
     [
         In(ciphertext),
         !Ltk($NodeB, ~ltkNodeB),
-        Fr(~future_head)
     ]
-    --[PathB_Request(User)]->
+    --[ PathB_Response(User) ]->
     [
         !LearnedKeysNodeB($NodeB, <User, receivedKey>),
         Out(aenc(<payload, signature>, receivedKey)),
         State($NodeB, <User, 'response'>)
     ]
 
-rule User_XOR_Process_A:
+rule User_AND_Process:
     let 
-        decrypted_box = adec(ciphertext, ~ltkUser)
-        payload = fst(decrypted_box)
-        signature = snd(decrypted_box)
+        decrypted_boxA = adec(ciphertextA, ~ltkUser)
+        payloadA = fst(decrypted_boxA)
+        signatureA = snd(decrypted_boxA)
         
-        current_vc = fst(payload)
-        next_vc_location = fst(snd(payload))
-        nonce = snd(snd(payload))
+        current_vcA = fst(payloadA)
+        next_vc_location = fst(snd(payloadA))
+        nonceA = snd(snd(payloadA))
+
+        decrypted_boxB = adec(ciphertextB, ~ltkUser)
+        payloadB = fst(decrypted_boxB)
+        signatureB = snd(decrypted_boxB)
+        
+        current_vcB = fst(payloadB)
+        nonceB = snd(payloadB)
     in
     [
-        In(ciphertext),
+        In(ciphertextA),
+        In(ciphertextB),
         !Ltk($User, ~ltkUser),
-        State($User, <$NodeA, 'request', reply_init_vc, post_init_vc_location, n>),
-        !Pk($NodeA, pkNodeA)
+        State($User, <$NodeA, 'request', reply_init_vc, post_init_vc_locationA, ~nA>),
+        State($User, <$NodeB, 'request', reply_init_vc, post_init_vc_locationB, ~nB>),
+        !Pk($NodeA, pkNodeA),
+        !Pk($NodeA, pkNodeB)
     ]
     --[ 
-        Eq(h(n), nonce),
-        Eq(verify(signature, payload, pkNodeA), true),
-        UserPassesNodeA($User, current_vc, next_vc_location)
+        Eq(h(nA), nonceA),
+        Eq(h(nB), nonceB),
+        UserPassesNode($User, current_vc, next_vc_location)
     ]->
     [
-        State($User, <$NodeA, 'response', current_vc, next_vc_location>)
-    ]
-    
-
-rule User_XOR_Process_B:
-    let 
-        decrypted_box = adec(ciphertext, ~ltkUser)
-        payload = fst(decrypted_box)
-        signature = snd(decrypted_box)
-
-        current_vc = fst(payload)
-        next_vc_location = fst(snd(payload))
-        nonce = snd(snd(payload))
-    in
-    [
-        In(ciphertext),
-        !Ltk($User, ~ltkUser),
-        State($User, <$NodeB, 'request', reply_init_vc, post_init_vc_location, n>),
-        !Pk($NodeB, pkNodeB)
-    ]
-    --[ 
-        Eq(h(n), nonce),
-        Eq(verify(signature, payload, pkNodeB), true),
-        UserPassesNodeB($User, current_vc, next_vc_location) 
-    ]->
-    [
-        State($User, <$NodeB, 'response', current_vc, next_vc_location>)
+        Eq(verify(signatureA, payloadA, pkNodeA), true),
+        Eq(verify(signatureB, payloadB, pkNodeB), true),
+        State($User, <$NodeA, 'response', current_vc, next_vc_location>) // Maybe we need a sum node here
     ]
 
-lemma User_XOR_AB:
-    "All user current_vc next_vc_location #i.
-        UserPassesNodeA(user, current_vc, next_vc_location) @i
-        ==> 
-        not (Ex #j. UserPassesNodeB(user, current_vc, next_vc_location) @j)"
-
-lemma User_XOR_BA:
-    "All user current_vc next_vc_location #i.
-        UserPassesNodeB(user, current_vc, next_vc_location) @i
-        ==> 
-        not (Ex #j. UserPassesNodeA(user, current_vc, next_vc_location) @j)"
-
-lemma User_Got_ReponseA:
+lemma User_Got_AND_Reponse:
     exists-trace
     "Ex user a b #i.
-        UserPassesNodeA(user, a, b) @i"
+        UserPassesNode(user, a, b) @i"
 
-lemma User_Got_ReponseB:
+lemma User_Got_Response_From_A:
     exists-trace
     "Ex user a b #i.
-        UserPassesNodeB(user, a, b) @i"
+        PathB_Response(user) @i"
+
+lemma User_Got_Response_From_B:
+    exists-trace
+    "Ex user a b #i.
+        PathB_Response(user) @i"
 
 lemma PathA_Key_Secretary:
     "All user vc next #i.

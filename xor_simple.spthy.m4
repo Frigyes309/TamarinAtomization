@@ -1,10 +1,7 @@
-theory XOR_process
+theory XOR_simple_process
 begin
 
 builtins: hashing, asymmetric-encryption, signing
-
-include(`./raw/init.spthy.raw')
-// ')
 
 restriction Equality:
   "All x y #i. Eq(x,y) @i ==> x = y"
@@ -31,32 +28,44 @@ rule NodeB_Setup:
         Out(pk(~ltkNodeB))
     ]
 
+rule InitState:
+    [
+        Fr(~ltkUser),
+        Fr(~reply_init_vc),
+        Fr(~post_init_vc_location)
+    ]
+    -->
+    [
+        !Ltk($User, ~ltkUser),
+        State($User, <$NodeInit, 'response', ~reply_init_vc, ~post_init_vc_location>)
+    ]
+
 rule PathA_Request:
     [
         !Ltk($User, ~ltkUser),
-        !Pk($NodeA, pk(~ltkNodeA)),
+        !Pk($NodeA, pkA),
         //Might have to add ! later on to all States to model malicious User
         State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_location>),
         Fr(~n)
     ]
-    --[    ]->
+    -->
     [ 
         State($User, <$NodeA, 'request', reply_init_vc, post_init_vc_location>),
-        Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_location, ~n>, pk(~ltkNodeA))),
+        Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_location, ~n>, pkA)),
     ]
 
 rule PathB_Request:
     [
         !Ltk($User, ~ltkUser),
-        !Pk($NodeB, pk(~ltkNodeB)),
+        !Pk($NodeB, pkB),
         //Might have to add ! later on to all States to model malicious User
         State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_location>),
         Fr(~n)
     ]
-    --[    ]->
+    -->
     [ 
         State($User, <$NodeB, 'request', reply_init_vc, post_init_vc_location, ~n>),
-        Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_location, ~n>, pk(~ltkNodeB))),
+        Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_location, ~n>, pkB)),
     ]
 
 rule NodeA_Process:
