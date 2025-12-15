@@ -3,8 +3,6 @@
 restriction Equality:
   "All x y #i. Eq(x,y) @i ==> x = y"
 
-// --- SETUP ÉS INIT KÉRÉS (Ez jó volt eddig is) ---
-
 rule Init_NodeInit:
     [
         Fr(~ltkNodeInit)
@@ -39,17 +37,12 @@ rule Init_User_Request:
         State($User, <$NodeInit, 'request', ~init_vc, ~init_message, ~n>)
     ]
 
-// --- NODE FELDOLGOZÁS (Ez is jó volt a kódodban) ---
-
 rule NodeInit_Process:
     let 
-        // A választ itt rakjuk össze
         payload = <~reply_init_vc, ~post_init_vc_location, h(nonce)>
         signature = sign(payload, ~ltkNodeInit)
     in
     [
-        // OPTIMALIZÁCIÓ: Mintaillesztés az In-ben! 
-        // Nem kell adec/fst/snd, mert a Tamarin elvégzi a mintára illesztést.
         In( aenc(<User, receivedKey, init_vc, init_message, nonce>, pk(~ltkNodeInit)) ),
         !Ltk($NodeInit, ~ltkNodeInit),
         Fr(~reply_init_vc),
@@ -62,38 +55,31 @@ rule NodeInit_Process:
         State($NodeInit, <User, 'init'>)
     ]
 
-// --- USER VÁLASZ FELDOLGOZÁS (ITT VOLT A HIBA) ---
-
 rule User_Branching:
     let 
-        // Definiáljuk, hogy milyen belső szerkezetet várunk a titkosításon belül.
-        // Itt 'received_hash'-nek nevezem a h(nonce)-t a tisztánlátás végett.
-        payload = <reply_init_vc, post_init_vc_location, received_hash>
+        decrypted_box = adec(reply_ciphertext, ~ltkUser)
+        payload = fst(decrypted_box)
+        signature = snd(decrypted_box)
+
+        reply_init_vc = fst(payload)
+        post_init_vc_location = fst(snd(payload))
+        nonce = snd(snd(payload))
     in
     [
-        // JAVÍTÁS: 
-        // 1. In(reply_ciphertext) HELYETT -> In( aenc(<payload, signature>, ...) )
-        // Ez azonnal kiszűri a szemetet, és nem eszik memóriát.
-        In( aenc(<payload, signature>, pk(~ltkUser)) ),
-        
+        In(reply_ciphertext),
         State($User, <$NodeInit, 'request', init_vc, init_message, n>),
         !Ltk($User, ~ltkUser),
         !Pk($NodeInit, pkNodeInit)
     ]
     --[ 
-        // ELLENŐRZÉSEK:
-        // A kapott hash megegyezik-e az eredeti n hash-ével?
-        Eq(received_hash, h(n)), 
-        // A szignatúra érvényes-e?
+        Eq(h(n), nonce), 
         Eq(verify(signature, payload, pkNodeInit), true),
-        
         User_Passes_Initialization($User, reply_init_vc, post_init_vc_location) 
     ]->
     [
         State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_location>)
     ]
 
-// --- LEMMÁK ---
 
 lemma User_Key_Secretary:
     "All user key #i.
@@ -112,4 +98,4 @@ lemma User_Receives_Response:
         ==>
         ( not (Ex #j. K(reply_vc) @j) )
         &
-        ( not (Ex #k. K(loc) @k) )"
+        ( not (Ex #k. K(loc) @k) )"    
