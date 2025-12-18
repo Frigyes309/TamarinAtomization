@@ -3,10 +3,8 @@ begin
 
 builtins: hashing, asymmetric-encryption, signing
 
-// Feltételezzük, hogy az init.spthy.raw tartalmazza a javított Init szabályokat
 include(`./raw/init.spthy.raw')
 // ')
-// --- SETUP ---
 
 rule NodeA_Setup:
     [ Fr(~ltkNodeA) ]
@@ -18,10 +16,6 @@ rule NodeB_Setup:
     -->
     [ !Ltk($NodeB, ~ltkNodeB), !Pk($NodeB, pk(~ltkNodeB)), Out(pk(~ltkNodeB)) ]
 
-// --- KÉRÉSEK (REQUESTS) ---
-// Itt dől el az irány. Mivel a State(...) nem Persistent (!), 
-// ezért ha ez a szabály lefut, az input State törlődik.
-
 rule PathA_Request:
     [
         !Ltk($User, ~ltkUser),
@@ -30,7 +24,7 @@ rule PathA_Request:
         Fr(~n)
     ]
     -->
-    [ 
+    [
         State($User, <$NodeA, 'request', reply_init_vc, post_init_vc_location, ~n>),
         Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_location, ~n>, pkNodeA))
     ]
@@ -43,21 +37,17 @@ rule PathB_Request:
         Fr(~n)
     ]
     -->
-    [ 
+    [
         State($User, <$NodeB, 'request', reply_init_vc, post_init_vc_location, ~n>),
         Out(aenc(<$User, pk(~ltkUser), reply_init_vc, post_init_vc_location, ~n>, pkNodeB))
     ]
 
-// --- NODE FELDOLGOZÁS (JAVÍTVA) ---
-
 rule NodeA_Process:
-    let 
-        // A válasz payload előkészítése
+    let
         payload = <next_location, ~future_head, h(nonce)>
         signature = sign(payload, ~ltkNodeA)
     in
     [
-        // JAVÍTÁS: Mintaillesztés az In-ben (RAM optimalizáció)
         In( aenc(<User, receivedKey, current_snake, next_location, nonce>, pk(~ltkNodeA)) ),
         !Ltk($NodeA, ~ltkNodeA),
         Fr(~future_head)
@@ -70,12 +60,11 @@ rule NodeA_Process:
     ]
 
 rule NodeB_Process:
-    let 
+    let
         payload = <next_location, ~future_head, h(nonce)>
         signature = sign(payload, ~ltkNodeB)
     in
     [
-        // JAVÍTÁS: Mintaillesztés az In-ben
         In( aenc(<User, receivedKey, current_snake, next_location, nonce>, pk(~ltkNodeB)) ),
         !Ltk($NodeB, ~ltkNodeB),
         Fr(~future_head)
@@ -87,22 +76,17 @@ rule NodeB_Process:
         State($NodeB, <User, 'response'>)
     ]
 
-// --- USER VÁLASZ FELDOLGOZÁS (JAVÍTVA) ---
-
 rule User_XOR_Process_A:
-    let 
-        // Várt struktúra
+    let
         payload = <current_vc, next_vc_location, received_hash>
     in
     [
-        // JAVÍTÁS: Mintaillesztés az üzenetre
         In( aenc(<payload, signature>, pk(~ltkUser)) ),
         !Ltk($User, ~ltkUser),
         State($User, <$NodeA, 'request', reply_init_vc, post_init_vc_location, n>),
         !Pk($NodeA, pkNodeA)
     ]
-    --[ 
-        // JAVÍTÁS: Az ellenőrzések (Eq) átmozgatva az Action blokkba!
+    --[
         Eq(received_hash, h(n)),
         Eq(verify(signature, payload, pkNodeA), true),
         UserPassesNodeA($User, current_vc, next_vc_location)
@@ -110,48 +94,43 @@ rule User_XOR_Process_A:
     [
         State($User, <$NodeA, 'response', current_vc, next_vc_location>)
     ]
-    
 
 rule User_XOR_Process_B:
-    let 
+    let
         payload = <current_vc, next_vc_location, received_hash>
     in
     [
-        // JAVÍTÁS: Mintaillesztés
         In( aenc(<payload, signature>, pk(~ltkUser)) ),
         !Ltk($User, ~ltkUser),
         State($User, <$NodeB, 'request', reply_init_vc, post_init_vc_location, n>),
         !Pk($NodeB, pkNodeB)
     ]
-    --[ 
-        // JAVÍTÁS: Ellenőrzések az Action blokkban
+    --[
         Eq(received_hash, h(n)),
         Eq(verify(signature, payload, pkNodeB), true),
-        UserPassesNodeB($User, current_vc, next_vc_location) 
+        UserPassesNodeB($User, current_vc, next_vc_location)
     ]->
     [
         State($User, <$NodeB, 'response', current_vc, next_vc_location>)
     ]
 
-// --- LEMMÁK ---
-
-lemma Source_Init_VC [sources]:
-  "All user vc loc #i.
-    User_Passes_Initialization(user, vc, loc) @i
-    ==>
-    (Ex #j. NodeGeneratedVC(vc) @j & j < i)"
-
-// Ez bizonyítja, hogy nem lehet mindkét helyen egyszerre (XOR)
 lemma User_XOR_AB:
     "All user current_vc next_vc_location #i.
         UserPassesNodeA(user, current_vc, next_vc_location) @i
-        ==> 
+        ==>
         not (Ex #j. UserPassesNodeB(user, current_vc, next_vc_location) @j)"
+
+lemma Non_ExUser_XOR_AB:
+    exists-trace
+    "All user current_vc next_vc_location #i.
+        UserPassesNodeA(user, current_vc, next_vc_location) @i
+        ==>
+        Ex other_vc other_loc #j. UserPassesNodeB(user, other_vc, other_loc) @j"
 
 lemma User_XOR_BA:
     "All user current_vc next_vc_location #i.
         UserPassesNodeB(user, current_vc, next_vc_location) @i
-        ==> 
+        ==>
         not (Ex #j. UserPassesNodeA(user, current_vc, next_vc_location) @j)"
 
 lemma User_Got_ReponseA:
@@ -177,4 +156,5 @@ lemma PathB_Key_Secretary:
         ==>
         (not (Ex #j. K(vc) @j))
         & (not (Ex #k. K(next) @k))"
+
 end

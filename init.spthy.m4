@@ -1,7 +1,17 @@
-theory Init_process
-begin
+restriction Equality:
+  "All x y #i. Eq(x,y) @i ==> x = y"
 
-builtins: hashing, asymmetric-encryption, signing
+restriction Unique_User:
+  "All user key1 key2 #i #j.
+    UserCreated(user, key1) @i & UserCreated(user, key2) @j ==> #i = #j"
+
+restriction Unique_Init_Response:
+  "All node user #i #j.
+    Finished(node, user) @i & Finished(node, user) @j ==> #i = #j"
+
+restriction XOR_Node_Processing:
+  "All user #i #j.
+    PathA_Request(user) @i & PathB_Request(user) @j ==> F"
 
 rule Init_NodeInit:
     [
@@ -38,19 +48,12 @@ rule Init_User_Request:
     ]
 
 rule NodeInit_Process:
-    let 
-        content = adec(ciphertext, ~ltkNodeInit)
-        User = fst(content)
-        receivedKey = fst(snd(content))
-        init_vc = fst(snd(snd(content)))
-        init_message = fst(snd(snd(snd(content))))
-        nonce = snd(snd(snd(snd(content))))
-
+    let
         payload = <~reply_init_vc, ~post_init_vc_location, h(nonce)>
         signature = sign(payload, ~ltkNodeInit)
     in
     [
-        In(ciphertext),
+        In( aenc(<User, receivedKey, init_vc, init_message, nonce>, pk(~ltkNodeInit)) ),
         !Ltk($NodeInit, ~ltkNodeInit),
         Fr(~reply_init_vc),
         Fr(~post_init_vc_location)
@@ -63,28 +66,23 @@ rule NodeInit_Process:
     ]
 
 rule User_Branching:
-    let 
-        decrypted_box = adec(reply_ciphertext, ~ltkUser)
-        payload = fst(decrypted_box)
-        signature = snd(decrypted_box)
-
-        reply_init_vc = fst(payload)
-        post_init_vc_location = fst(snd(payload))
-        nonce = snd(snd(payload))
+    let
+        payload = <reply_init_vc, post_init_vc_location, received_hash>
     in
     [
-        In(reply_ciphertext),
+        In( aenc(<payload, signature>, pk(~ltkUser)) ),
         State($User, <$NodeInit, 'request', init_vc, init_message, n>),
         !Ltk($User, ~ltkUser),
-        !Pk($NodeInit, pkNodeInit),
-        Eq(h(n), nonce) 
+        !Pk($NodeInit, pkNodeInit)
     ]
-    --[ User_Passes_Initialization($User, reply_init_vc, post_init_vc_location) ]->
-    [
+    --[
+        Eq(received_hash, h(n)),
         Eq(verify(signature, payload, pkNodeInit), true),
+        User_Passes_Initialization($User, reply_init_vc, post_init_vc_location)
+    ]->
+    [
         State($User, <$NodeInit, 'response', reply_init_vc, post_init_vc_location>)
     ]
-
 
 lemma User_Key_Secretary:
     "All user key #i.
@@ -103,6 +101,4 @@ lemma User_Receives_Response:
         ==>
         ( not (Ex #j. K(reply_vc) @j) )
         &
-        ( not (Ex #k. K(loc) @k) )"    
-
-end
+        ( not (Ex #k. K(loc) @k) )"
